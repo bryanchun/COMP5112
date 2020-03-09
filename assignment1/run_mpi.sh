@@ -3,4 +3,4 @@ num=2
 test=./datasets/1k.in
 echo $num
 echo $test
-mpiexec -n $num --hostfile ~/hostfile ./mpi_smith_waterman $test
+mpiexec -n $num --hostfile ./hostfile ./mpi_smith_waterman $test
