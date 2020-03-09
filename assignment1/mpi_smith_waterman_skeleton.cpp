@@ -1,7 +1,7 @@
 /**
- * Name:
- * Student id:
- * ITSC email:
+ * Name: CHUN Hiu Sang
+ * Student id: 20421860
+ * ITSC email: hschun@connect.ust.hk
 */
 
 #include "mpi_smith_waterman.h"
