@@ -16,6 +16,7 @@
 /*
  *  You can add helper functions and variables as you wish.
  */
+
 std::vector<std::pair<int, int>> locate(int antidiagIdx, int a_len, int b_len);
 int computeH_ij(int lastlast, int last_L, int last_R, char a_i, char b_i);
 // /**
@@ -36,7 +37,7 @@ void debug_print(string name, int idx, std::vector<std::pair<int, int>> vec) {
         std::cout << i->first << ',' << i->second << ' ';
     std::cout << std::endl;
 }
-void debug_print(string name, int idx, int* arr) {
+void debug_print(string name, int idx, int arr[]) {
     std::cout << name << "[" << idx << "]" << ' ';
     for (int i = 0; i < sizeof(arr)/sizeof(int); i++)
         std::cout << arr[i] << ' ';
@@ -52,13 +53,15 @@ int smith_waterman(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_le
     // Runs in time O(a_len + b_len)
     const int num_antidiags = a_len + b_len - 1;
     // Stores max scores of all processes in each antidiag
-
+    std::vector<int> max_scores(num_antidiags,  0); 
     // Stores max score of all processes in all antidiags by far
-    int max_score = 0;
+    int total_max_score = 0;
 
     // Input data for each antidiag
-   std::vector<int> lastlastAd(1, 0);
-   std::vector<int> lastAd(2, 0);
+    std::vector<int> lastlastAd(1, 0);
+    std::vector<int> lastAd(2, 0);
+    // std::vector<int> lastlastAd(1, 0);
+    // std::vector<int> lastAd(2, 0);
 
     for (int i = 0; i < num_antidiags; i++) {
         // Blocking wait until all processes are in sync
@@ -81,7 +84,7 @@ int smith_waterman(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_le
                     lastlastAd[k], lastAd[k], lastAd[k+1],
                     a[coordinates[k].first], b[coordinates[k].second]
                 );
-            max_score = std::max(max_score, h);
+            max_scores[i] = std::max(max_scores[i], h);
             results.push_back(h);
         }
 
@@ -91,9 +94,9 @@ int smith_waterman(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_le
 #endif
 
         // Pop boundary zero
-       lastlastAd.assign(
-           i < a_len - 1 ? lastAd.begin() : lastAd.begin() + 1,
-           i < b_len - 1 ? lastAd.end()   : lastAd.end() - 1);
+        lastlastAd.assign(
+            i < a_len - 1 ? lastAd.begin() : lastAd.begin() + 1,
+            i < b_len - 1 ? lastAd.end()   : lastAd.end() - 1);
 
         // Pad boundary zero
         lastAd.clear();
@@ -106,6 +109,13 @@ int smith_waterman(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_le
         if (i < b_len - 1) {
             lastAd.push_back(0);
         }
+
+        // lastAd.assign(
+        //     results.size()
+        //     + i < a_len - 1 ? 1 : 0
+        //     + i < b_len - 1 ? 1 : 0, 0);
+        // std::copy(results.begin(), results.end(), 
+        //     i < a_len - 1 ? lastAd.begin() + 1 : lastAd.begin());
         ////////////////////
 
         // All processes send their local_max_score to root process for
@@ -114,12 +124,12 @@ int smith_waterman(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_le
         //MPI_Reduce(&local_max_score, &max_scores[i], 1, MPI_INT, MPI_MAX, 0, comm);
         if (my_rank == 0) {
             // Keep current maximum out of all antidiags
-            // max_score = max(max_score, max_scores[i]);
+            total_max_score = max(total_max_score, max_scores[i]);
         }
     }
 
-    // The root process returns the well received max_score
-    return max_score;
+    // The root process returns the well received total_max_score
+    return total_max_score;
 }   /* smith_waterman */
 
 // Custom datatype?
