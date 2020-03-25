@@ -102,27 +102,18 @@ int computeH_ij(int lastlast, int last_L, int last_R, char a_i, char b_i) {
 // Returns local_max_score
 int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, int local_n, int bIdx) {
     /* local-to-process variables */
-#ifdef DEBUG
-    std::cout << "enter computeHx" << std::endl;
-#endif
     int local_max_scores[local_n];
     for (int j = 0; j < local_n; j++) {
         local_max_scores[j] = 0;
     }
-#ifdef DEBUG
-    std::cout << "assigned local_max_scores" << std::endl;
-#endif
 
     // int frame_width = 1000;
     // int frame_height = 1000;
     // int num_frame_w = local_n / frame_width + (local_n % frame_width == 0 ? 0 : 1);
 
     int local_hx[local_n][a_len];        /* out */
-    // int** local_hx = new int*[local_n];
-    // for (int k = 0; k < local_n; k++) {
-    //     local_hx[k] = new int[a_len];
-    // }
     int prev_hx[a_len];                  /* in */
+
 #ifdef DEBUG
     // int local_hx_test1[100][20000];
     // int local_hx_test1[1000][1000];
@@ -148,20 +139,9 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
         std::cout << "well received at " << my_rank << std::endl;
 #endif
     }
-#ifdef DEBUG
-    std::cout << "being looping from " << my_rank << std::endl;
-#endif
+
     for (int i = 0; i < a_len; i++) {
-#ifdef DEBUG
-    std::cout << "looping from " << my_rank << " at i=" << i << std::endl;
-#endif
-        for (int j = 0; j < local_n; j++) {
-#ifdef DEBUG
-    std::cout << "looping from " << my_rank << " at i=" << i << " j=" << j << std::endl;
-#endif
-    // my_rank = 2, i = 2, j = 0
-    // my_rank = 3, i = 0, j = 1
-             
+        for (int j = 0; j < local_n; j++) {             
             /* lastlast */
             int lastlast = (i == 0 || (my_rank == 0 && j == 0))
                     ? 0 
@@ -171,9 +151,7 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
                     // if is top row or is first col in root process -> use 0
                     // else if first col in a non-root process -> use received col
                     // otherwise -> use last local col
-// #ifdef DEBUG
-//             std::cout << "lastlast got" << std::endl;
-// #endif
+
             /* last_L */
             int last_L = (my_rank == 0 && j == 0)
                     ? 0
@@ -183,23 +161,15 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
                     // if is first col in root process -> use 0
                     // else if first col in a non-root process -> use received col
                     // otherwise -> use last local col
-// #ifdef DEBUG
-//             std::cout << "last_L got" << std::endl;
-// #endif
+
             /* last_R */
             int last_R = (i == 0)
                     ? 0
                     : local_hx[j][i-1];
                     // if top row -> use 0
                     // else -> use last local col
-// #ifdef DEBUG
-//             std::cout << "last_R got" << std::endl;
-// #endif
+            
             local_hx[j][i] = computeH_ij(lastlast, last_L, last_R, a[i], b[bIdx + j]);
-            // if (my_rank < p - 1 && j == local_n - 1) {                             // if not rightmost process, send
-            //     MPI_Send(&local_hx[j][i], 1, MPI_INT, my_rank + 1,
-            //         my_rank, comm);
-            // }
 
             local_max_scores[j] = max(local_max_scores[j], local_hx[j][i]);
 #ifdef DEBUG
@@ -211,28 +181,11 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
     if (my_rank < p - 1) {                                                       // if not rightmost process, send
         MPI_Send(&(local_hx[local_n - 1]), a_len, MPI_INT, my_rank + 1,
             my_rank, comm);
-#ifdef DEBUG
-        // debug_print2d("local_hx", my_rank, 0, 0, local_hx[local_n - 1], a_len);
-#endif
     }
 #ifdef DEBUG
     debug_print("local_max_scores", my_rank, 0, local_max_scores, local_n);
     std::cout << "well sent at " << my_rank << std::endl;
 #endif
-
-    int ans = local_max_scores[0];
-    for (int k = 1; k < local_n; k++) {
-        ans = max(ans, local_max_scores[k]);
-    }
-
-    // delete[] local_max_scores;
-    // for (int k = 0; k < local_n; k++) {
-    //     delete[] local_hx[k];
-    // }
-    // delete[] local_hx;
-    // *std::max_element(local_max_scores, local_max_scores + local_n);
-#ifdef DEBUG
-    std::cout << "ans from process " << my_rank << " is " << ans << std::endl;
-#endif
-    return ans;
+    
+    return *std::max_element(local_max_scores, local_max_scores + local_n);;
 }
