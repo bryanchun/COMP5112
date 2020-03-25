@@ -18,7 +18,8 @@
  */
 
 int computeH_ij(int lastlast, int last_L, int last_R, char a_i, char b_i);
-void computeHx(int local_max_scores[], int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, int local_n, int bIdx);
+// void computeHx_grid();
+int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, int local_n, int bIdx);
 
 #ifdef DEBUG
 void debug_print(string name, int my_rank, int idx, int arr[], int n) {
@@ -38,10 +39,9 @@ void debug_print2d(string name, int my_rank, int primary, int idx, int arr[], in
 /**
  * Currently: p < b_len
  * 
- * TODO: fix large input 2d array memory corruption at local_hx - using a moving frame perhaps
- * TODO: local_max_scores to be handled inside computeHx, and returns local_max_score
- * TODO: Scatter string b in characters
- * TODO: TA help: optimise MPI calls - Bcast
+ * TODO: Partition local H to moving frame (calculate H entries and toss away)
+ *  - dynamic array?
+ * TODO: send/recv once per process in a batch
  */
 int smith_waterman(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, int b_len) {
     /*
@@ -55,18 +55,12 @@ int smith_waterman(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_le
         a = new char[a_len];
         b = new char[b_len];
     }
-    for (int i = 0; i < a_len; i++) {
-        MPI_Bcast(&a[i], 1, MPI_INT, 0, comm);
-    }
-    for (int i = 0; i < b_len; i++) {
-        MPI_Bcast(&b[i], 1, MPI_INT, 0, comm);
-    }
+    MPI_Bcast(a, a_len+1, MPI_INT, 0, comm);
+    MPI_Bcast(b, b_len+1, MPI_INT, 0, comm);
+    
 #ifdef DEBUG
     std::cout << "Get inputs done" << std::endl;
 #endif
-    /* Answer */
-    int max_score;
-    int local_max_score;
 
     /* Distribute work across processors */
     int base_n = b_len / p;
@@ -80,11 +74,11 @@ int smith_waterman(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_le
     std::cout << my_rank << " has local_n " << local_n << std::endl;
     std::cout << my_rank << " has bIdx " << bIdx << std::endl;
 #endif
-    int local_max_scores[local_n];
 
-    computeHx(local_max_scores, my_rank, p, comm, a, b, a_len, local_n, bIdx);
+    int local_max_score = computeHx(my_rank, p, comm, a, b, a_len, local_n, bIdx);
 
-    local_max_score = *std::max_element(local_max_scores, local_max_scores + local_n);
+    /* Answer */
+    int max_score;
     MPI_Reduce(&local_max_score, &max_score, 1, MPI_INT, MPI_MAX, 0, comm);
     return max_score;
 }   /* smith_waterman */
@@ -94,9 +88,17 @@ int computeH_ij(int lastlast, int last_L, int last_R, char a_i, char b_i) {
     return *std::max_element(candidates, candidates + 4);
 }
 
+// void computeHx_grid(int width, int height, int aIdx, int bIdx, int grid_max_scores[]) {
+
+// }
+
 // Returns local_max_score
-void computeHx(int local_max_scores[], int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, int local_n, int bIdx) {
+int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, int local_n, int bIdx) {
     /* local-to-process variables */
+#ifdef DEBUG
+    std::cout << "enter computeHx" << std::endl;
+#endif
+    int local_max_scores[local_n];
     for (int j = 0; j < local_n; j++) {
         local_max_scores[j] = 0;
     }
@@ -104,11 +106,28 @@ void computeHx(int local_max_scores[], int my_rank, int p, MPI_Comm comm, char *
     std::cout << "assigned local_max_scores" << std::endl;
 #endif
 
+    // int grid_width = 1000;
+    // int grid_height = 1000;
+    // int num_batch_w = local_n / batch_width + (local_n % batch_width == 0 ? 0 : 1);
+
     int local_hx[a_len][local_n];        /* out */
     int prev_hx[a_len];                  /* in */
 #ifdef DEBUG
+    // int local_hx_test1[100][20000];
+    // int local_hx_test1[1000][1000];
+
+    // int local_hx_test1[1000][2000];
+    std::cout << "declared local_hx_test1" << std::endl;
+    // int local_hx_test2[20000][20000];
+    // std::cout << "declared local_hx_test2" << std::endl;
     std::cout << "declared local_hx & prev_hx" << std::endl;
 #endif
+
+    // intercol[], interrow[][width]
+    // for each grid h
+    //      for each grid w
+    //          computeHx_grid()
+    //          return intercol[height], interrow[width]
 
     for (int i = 0; i < a_len; i++) {
         for (int j = 0; j < local_n; j++) {
@@ -156,4 +175,5 @@ void computeHx(int local_max_scores[], int my_rank, int p, MPI_Comm comm, char *
             local_max_scores[j] = max(local_max_scores[j], local_hx[i][j]);
         }
     }
+    return *std::max_element(local_max_scores, local_max_scores + local_n);
 }
