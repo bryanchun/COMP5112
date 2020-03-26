@@ -81,7 +81,6 @@ int smith_waterman(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_le
         : (outstanding * (base_n + 1) + (my_rank - outstanding) * base_n);  // otherwise, shift all outstanding base_n+1 then times as many more than outstanding with base_n
 #ifdef DEBUG
     std::cout << my_rank << " has local_n " << local_n << std::endl;
-    std::cout << my_rank << " has a_len " << bIdx << std::endl;
     std::cout << my_rank << " has bIdx " << bIdx << std::endl;
 #endif
 
@@ -116,7 +115,10 @@ vector<int> computeHx_frame(
 
     for (int i = 0; i < height; i++) {
         for (int j = 0; j < width; j++) {
-
+#ifdef DEBUG
+    cout << "computeHx_frame: setup " << i << ", " << j << endl;
+#endif
+        // width=1, height=2
             /* lastlast */
             int lastlast = (i == 0 && j == 0)
                 ? *lower_right_to_upper_left_buffer
@@ -127,34 +129,47 @@ vector<int> computeHx_frame(
                 // is top row -> use top_down_frame_buffer
                 // is leftmost col -> use left_right_frame_buffer
                 // else -> use upperleft neighbour from frame_hx
-
+#ifdef DEBUG
+    cout << "computeHx_frame: lastlast" << endl;
+    cout << "left_right_frame_buffer[i] " << left_right_frame_buffer[i] << endl;
+#endif
             /* last_L */
             int last_L = (j == 0)
                 ? left_right_frame_buffer[i]
                 : frame_hx[j-1][i];
                 // is first col -> use left_right_frame_buffer
                 // else -> use left neighbour from frame_hx
-
+#ifdef DEBUG
+    cout << "computeHx_frame: last_L" << endl;
+#endif
             /* last_R */
             int last_R = (i == 0)
                 ? top_down_frame_buffer[j]
                 : frame_hx[j][i-1];
                 // is first row -> use top_down_frame_buffer
                 // else -> use top neighbour from frame_hx
-
+#ifdef DEBUG
+    cout << "computeHx_frame: last_R" << endl;
+#endif
             frame_hx[j][i] = computeH_ij(lastlast, last_L, last_R, a[aIdx + i], b[bIdx + j]);
             frame_max_scores[j] = max(frame_max_scores[j], frame_hx[j][i]);
+
+#ifdef DEBUG
+            cout << "lastlast, last_L, last_R, a', b': " << lastlast << " " << last_L << " " << last_R << " " << a[aIdx + i] << " " << b[bIdx + j] << endl;
+            cout << "frame_hx[j][i]=" << frame_hx[j][i] << endl;
+            cout << "frame_max_scores[j]=" << frame_max_scores[j] << endl;
+#endif 
         }
     }
-// #ifdef DEBUG
-//     cout << "frame_hx: ";
-//     for (int j = 0; j < width; j++) {
-//         for (int i = 0; i < height; i++) {
-//             cout << frame_hx[j][i] << " ";
-//         }
-//         cout << endl;
-//     }
-// #endif
+#ifdef DEBUG
+    cout << "frame_hx: ";
+    for (int j = 0; j < width; j++) {
+        for (int i = 0; i < height; i++) {
+            cout << frame_hx[j][i] << " ";
+        }
+        cout << endl;
+    }
+#endif
     for (int i = 0; i < height; i++) {
         left_right_frame_buffer[i] = frame_hx[width-1][i];
     }
@@ -172,11 +187,6 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
     int frame_h = 1000;
     int frame_w = 1000;
     
-#ifdef DEBUG
-    std::cout << my_rank << " has b_len in computeHx " << b_len << std::endl;
-    std::cout << my_rank << " has a_len in computeHx " << bIdx << std::endl;
-    std::cout << my_rank << " has bIdx in computeHx " << bIdx << std::endl;
-#endif
     int num_y_full_frame = a_len / frame_h;
     int outstanding_y = a_len % frame_h;
     int has_trailing_y_frame = (outstanding_y > 0);
@@ -199,10 +209,19 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
     // Each of these store the result for this frame, and the next frame shall use it
     /* each row of frames passes 'num_x_frame' many 'frame_w' wide h entries to all frames downwards, where last frame could be less than 'frame_w' */
     int top_down_frame_buffer[num_x_frame][frame_w];
+    // int** top_down_frame_buffer = new int*[num_x_frame];
+    // for (int k = 0; k < num_x_frame; k++) {
+    //     top_down_frame_buffer[k] = new int[frame_w];
+    //     // for (int k2 = 0; k2 < frame_w; k2++) {
+    //     //     top_down_frame_buffer[k][k2] = 0;
+    //     // }
+    // }
     /* each row of frames passes 'num_x_frame-1' many lower right corners to its right-down frame; rightmost frame of the row just send to next process later so do not bother */
     int lower_right_to_upper_left_buffer[num_x_frame];
+    // int* lower_right_to_upper_left_buffer = new int[num_x_frame];
     /* each frame passes 'frame_h' high of h entries to the right frame */
     int left_right_frame_buffer[frame_h];
+    // int* left_right_frame_buffer = new int[frame_h];
 
     for (int h = 0; h < num_y_frame; h++) {
         for (int w = 0; w < num_x_frame; w++) {
@@ -233,9 +252,9 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
             }
             // else: Use left_right_frame_buffer from last frame
 
-// #ifdef DEBUG
-//     std::cout << my_rank << " has lrfb ready in (w, h): " << w << ", " << h << std::endl;
-// #endif
+#ifdef DEBUG
+    std::cout << my_rank << " has lrfb ready in (w, h): " << w << ", " << h << std::endl;
+#endif
 
             /* Getting buffer from the top */
             if (h == 0) {
@@ -246,9 +265,9 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
             }
             // else: Use top_down_frame_buffer from last frame
 
-// #ifdef DEBUG
-//     std::cout << my_rank << " has tpfb ready in (w, h): " << w << ", " << h << std::endl;
-// #endif
+#ifdef DEBUG
+    std::cout << my_rank << " has tpfb ready in (w, h): " << w << ", " << h << std::endl;
+#endif
 
             /* Getting buffer from top-left */
             if (w == 0 || h == 0) {
@@ -257,10 +276,10 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
             } 
             // else: Use lower_right_to_upper_left_buffer from last frame
 
-// #ifdef DEBUG
-//             std::cout << my_rank << " has lrtulb ready in (w, h): " << w << ", " << h << std::endl;
-//             debug_print("left_right_frame_buffer:before", h, w, left_right_frame_buffer, height);
-// #endif
+#ifdef DEBUG
+            std::cout << my_rank << " has lrtulb ready in (w, h): " << w << ", " << h << std::endl;
+            debug_print("left_right_frame_buffer:before", h, w, left_right_frame_buffer, height);
+#endif
             vector<int> frame_max_scores = computeHx_frame(
                 left_right_frame_buffer,
                 top_down_frame_buffer[w],
@@ -270,14 +289,14 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
             );
             local_max_scores[w] = max(local_max_scores[w], *std::max_element(frame_max_scores.begin(), frame_max_scores.end()));
 
-// #ifdef DEBUG
-//             debug_print("left_right_frame_buffer:after", h, w, left_right_frame_buffer, height);
-//             cout << "sending of height " << height << endl;
-// #endif
+#ifdef DEBUG
+            debug_print("left_right_frame_buffer:after", h, w, left_right_frame_buffer, height);
+            cout << "sending of height " << height << endl;
+#endif
 
-// #ifdef DEBUG
-//             std::cout << my_rank << " has local_max_scores[w] " << local_max_scores[w] << " in (w, h): " << w << ", " << h << std::endl;
-// #endif
+#ifdef DEBUG
+            std::cout << my_rank << " has local_max_scores[w] " << local_max_scores[w] << " in (w, h): " << w << ", " << h << std::endl;
+#endif
 
             /* rightmost frame of a row */
             /* Sending buffer to next process if not the last process */
@@ -291,5 +310,14 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
         }
         // Completed updating top_down_frame_buffer for a row
     }
+
+    /* Tear down */
+    // for (int k = 0; k < num_x_frame; k++) {
+    //     delete[] top_down_frame_buffer[k];
+    // }
+    // delete[] top_down_frame_buffer;
+    // delete[] lower_right_to_upper_left_buffer;
+    // delete[] left_right_frame_buffer;
+
     return *std::max_element(local_max_scores, local_max_scores + num_x_frame);
 }
