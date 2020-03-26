@@ -24,7 +24,7 @@ vector<int> computeHx_frame(
 int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, int local_n, int bIdx);
 
 #ifdef DEBUG
-void debug_print(string name, int my_rank, int w, int h, int arr[], int n) {
+void debug_print(string name, int my_rank, int h, int w, int arr[], int n) {
     std::cout << my_rank << " " << name << " in (w, h): " << w << ", " << h << " is: ";
     for (int i = 0; i < n; i++)
         std::cout << arr[i] << ' ';
@@ -35,10 +35,7 @@ void debug_print(string name, int my_rank, int w, int h, int arr[], int n) {
 /**
  * Currently: p < b_len
  * 
- * TODO: Partition local H to moving frame (calculate H entries and toss away)
- *  - dynamic array?
- * TODO: truncate at non-divisible frames
- * TODO: handle small inputs still
+ * TODO: frame_h, frame_w to 1000
  */
 int smith_waterman(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, int b_len) {
     /*
@@ -153,8 +150,8 @@ vector<int> computeHx_frame(
 // Returns local_max_score
 int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, int b_len, int bIdx) {
 
-    int frame_h = 2;
-    int frame_w = 2;
+    int frame_h = 1000;
+    int frame_w = 1000;
     
 #ifdef DEBUG
     std::cout << my_rank << " has a_len in computeHx " << a_len << std::endl;
@@ -199,6 +196,11 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
     for (int j = 0; j < num_x_frame; j++) {
         lower_right_to_upper_left_buffer[j] = 0;
     }
+    int prev_lower_right_to_upper_left_buffer[num_y_frame];
+    for (int j = 0; j < num_y_frame; j++) {
+        prev_lower_right_to_upper_left_buffer[j] = 0;
+    }
+
     /* each frame passes 'frame_h' high of h entries to the right frame */
     int left_right_frame_buffer[frame_h];
     for (int i = 0; i < frame_h; i++) {
@@ -217,13 +219,17 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
 
             /* leftmost frame of a row */
             /* Getting buffer from the left */
+
             if (w == 0) {
                 if (my_rank > 0) {
-                    // Recv left_right_frame_buffer from rank-1
+                    // Recv left_right_frame_buffer from my_rank-1
                     int prevHeight;
                     MPI_Recv(&prevHeight, 1, MPI_INT, my_rank - 1,
                         my_rank - 1, comm, MPI_STATUS_IGNORE);
                     MPI_Recv(&left_right_frame_buffer, prevHeight, MPI_INT, my_rank - 1,
+                        my_rank - 1, comm, MPI_STATUS_IGNORE);
+                    // Recv prev_lower_right_to_upper_left_buffer[h] to my_rank-1
+                    MPI_Recv(&(prev_lower_right_to_upper_left_buffer[h]), 1, MPI_INT, my_rank - 1,
                         my_rank - 1, comm, MPI_STATUS_IGNORE);
                 } else {
                     // Default left_right_frame_buffer to zeros
@@ -261,7 +267,7 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
                 for (int k = 1; k < num_x_frame; k++) {
                     lower_right_to_upper_left_buffer[k] = lower_right_to_upper_left_buffer[k-1];
                 }
-                lower_right_to_upper_left_buffer[0] = 0;
+                lower_right_to_upper_left_buffer[0] = prev_lower_right_to_upper_left_buffer[h-1];
             }
             // else: Use lower_right_to_upper_left_buffer from last frame
 
@@ -289,6 +295,7 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
             debug_print("top_down_frame_buffer:after", my_rank, h, w, top_down_frame_buffer[w], width);
             debug_print("lower_right_to_upper_left_buffer:after", my_rank, h, w, lower_right_to_upper_left_buffer, num_x_frame);
             cout << "sending of height " << height << endl;
+            cout << "sending of lower_right_to_upper_left_buffer[width-1] " << lower_right_to_upper_left_buffer[width-1] << endl;
 #endif
 
 // #ifdef DEBUG
@@ -302,6 +309,9 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
                 MPI_Send(&height, 1, MPI_INT, my_rank + 1,
                     my_rank, comm);
                 MPI_Send(&left_right_frame_buffer, height, MPI_INT, my_rank + 1,
+                    my_rank, comm);
+                // Send lower_right_to_upper_left_buffer[num_x_frame-1] to my_rank+1
+                MPI_Send(&(lower_right_to_upper_left_buffer[num_x_frame-1]), 1, MPI_INT, my_rank + 1,
                     my_rank, comm);
             }
         }
