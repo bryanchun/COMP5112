@@ -190,13 +190,17 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
     int num_y_full_frame = a_len / frame_h;
     int outstanding_y = a_len % frame_h;
     int has_trailing_y_frame = (outstanding_y > 0);
-    int num_y_frame = outstanding_y + has_trailing_y_frame ? 1 : 0;
-
+    int num_y_frame = num_y_full_frame + has_trailing_y_frame ? 1 : 0;
+#ifdef DEBUG
+    std::cout << my_rank << " has num_y_frame: " << num_y_frame << std::endl;
+#endif
     int num_x_full_frame = b_len / frame_w;
     int outstanding_x = b_len % frame_w;
     int has_trailing_x_frame = (outstanding_x > 0);
-    int num_x_frame = outstanding_x + has_trailing_x_frame ? 1 : 0;
-
+    int num_x_frame = num_x_full_frame + has_trailing_x_frame ? 1 : 0;
+#ifdef DEBUG
+    std::cout << my_rank << " has num_x_frame: " << num_x_frame << std::endl;
+#endif
     int local_max_scores[num_x_frame];
     for (int j = 0; j < num_x_frame; j++) {
         local_max_scores[j] = 0;
