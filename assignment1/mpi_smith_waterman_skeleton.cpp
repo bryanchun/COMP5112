@@ -295,7 +295,7 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
             debug_print("top_down_frame_buffer:after", my_rank, h, w, top_down_frame_buffer[w], width);
             debug_print("lower_right_to_upper_left_buffer:after", my_rank, h, w, lower_right_to_upper_left_buffer, num_x_frame);
             cout << "sending of height " << height << endl;
-            cout << "sending of lower_right_to_upper_left_buffer[width-1] " << lower_right_to_upper_left_buffer[width-1] << endl;
+            cout << "sending of lower_right_to_upper_left_buffer[num_x_frame-1] " << lower_right_to_upper_left_buffer[num_x_frame-1] << endl;
 #endif
 
 // #ifdef DEBUG
