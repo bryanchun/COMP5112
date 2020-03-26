@@ -24,20 +24,8 @@ vector<int> computeHx_frame(
 int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, int local_n, int bIdx);
 
 #ifdef DEBUG
-void debug_print(string name, int my_rank, int idx, int arr[], int n) {
-    std::cout << my_rank << " has " << name << "[" << idx << "]" << " is ";
-    for (int i = 0; i < n; i++)
-        std::cout << arr[i] << ' ';
-    std::cout << std::endl;
-}
-void debug_print(string name, int my_rank, int idx, vector<int> arr, int n) {
-    std::cout << name << "[" << idx << "]" << " from " << my_rank << " is ";
-    for (int i = 0; i < n; i++)
-        std::cout << arr[i] << ' ';
-    std::cout << std::endl;
-}
-void debug_print2d(string name, int my_rank, int primary, int idx, int arr[], int n) {
-    std::cout << name << "[" << primary << "]" << "[" << idx << "]" << " from " << my_rank << " is ";
+void debug_print(string name, int my_rank, int w, int h, int arr[], int n) {
+    std::cout << my_rank << " " << name << " in (w, h): " << w << ", " << h << " is: ";
     for (int i = 0; i < n; i++)
         std::cout << arr[i] << ' ';
     std::cout << std::endl;
@@ -79,11 +67,6 @@ int smith_waterman(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_le
     int bIdx = my_rank < outstanding
         ? (my_rank * (base_n + 1))                                          // if my_rank is less than outstanding, multiply base_n+1 by my_rank
         : (outstanding * (base_n + 1) + (my_rank - outstanding) * base_n);  // otherwise, shift all outstanding base_n+1 then times as many more than outstanding with base_n
-#ifdef DEBUG
-    std::cout << my_rank << " has local_n " << local_n << std::endl;
-    std::cout << my_rank << " has a_len " << bIdx << std::endl;
-    std::cout << my_rank << " has bIdx " << bIdx << std::endl;
-#endif
 
     int local_max_score = computeHx(my_rank, p, comm, a, b, a_len, local_n, bIdx);
 
@@ -146,22 +129,23 @@ vector<int> computeHx_frame(
             frame_max_scores[j] = max(frame_max_scores[j], frame_hx[j][i]);
         }
     }
-// #ifdef DEBUG
-//     cout << "frame_hx: ";
-//     for (int j = 0; j < width; j++) {
-//         for (int i = 0; i < height; i++) {
-//             cout << frame_hx[j][i] << " ";
-//         }
-//         cout << endl;
-//     }
-// #endif
+#ifdef DEBUG
+    cout << "frame_hx: " << "from " << aIdx << " and " << bIdx << " is: ";
+    for (int i = 0; i < height; i++) {
+        for (int j = 0; j < width; j++) {
+            cout << frame_hx[j][i] << " ";
+        }
+        cout << "\t";
+    }
+    cout << endl;
+#endif
     for (int i = 0; i < height; i++) {
         left_right_frame_buffer[i] = frame_hx[width-1][i];
     }
     for (int j = 0; j < width; j++) {
         top_down_frame_buffer[j] = frame_hx[j][height-1];
     }
-    *lower_right_to_upper_left_buffer = frame_hx[width][height];
+    *lower_right_to_upper_left_buffer = frame_hx[width-1][height-1];
 
     return frame_max_scores;
 }
@@ -169,26 +153,32 @@ vector<int> computeHx_frame(
 // Returns local_max_score
 int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, int b_len, int bIdx) {
 
-    int frame_h = 1000;
-    int frame_w = 1000;
+    int frame_h = 2;
+    int frame_w = 2;
     
 #ifdef DEBUG
+    std::cout << my_rank << " has a_len in computeHx " << a_len << std::endl;
     std::cout << my_rank << " has b_len in computeHx " << b_len << std::endl;
-    std::cout << my_rank << " has a_len in computeHx " << bIdx << std::endl;
     std::cout << my_rank << " has bIdx in computeHx " << bIdx << std::endl;
 #endif
     int num_y_full_frame = a_len / frame_h;
     int outstanding_y = a_len % frame_h;
     int has_trailing_y_frame = (outstanding_y > 0);
-    int num_y_frame = num_y_full_frame + has_trailing_y_frame ? 1 : 0;
+    int num_y_frame = num_y_full_frame + (has_trailing_y_frame ? 1 : 0);
 #ifdef DEBUG
+    std::cout << my_rank << " has num_y_full_frame: " << num_y_full_frame << std::endl;
+    std::cout << my_rank << " has outstanding_y: " << outstanding_y << std::endl;
+    std::cout << my_rank << " has has_trailing_y_frame: " << has_trailing_y_frame << std::endl;
     std::cout << my_rank << " has num_y_frame: " << num_y_frame << std::endl;
 #endif
     int num_x_full_frame = b_len / frame_w;
     int outstanding_x = b_len % frame_w;
     int has_trailing_x_frame = (outstanding_x > 0);
-    int num_x_frame = num_x_full_frame + has_trailing_x_frame ? 1 : 0;
+    int num_x_frame = num_x_full_frame + (has_trailing_x_frame ? 1 : 0);
 #ifdef DEBUG
+    std::cout << my_rank << " has num_x_full_frame: " << num_x_full_frame << std::endl;
+    std::cout << my_rank << " has outstanding_x: " << outstanding_x << std::endl;
+    std::cout << my_rank << " has has_trailing_x_frame: " << has_trailing_x_frame << std::endl;
     std::cout << my_rank << " has num_x_frame: " << num_x_frame << std::endl;
 #endif
     int local_max_scores[num_x_frame];
@@ -199,10 +189,21 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
     // Each of these store the result for this frame, and the next frame shall use it
     /* each row of frames passes 'num_x_frame' many 'frame_w' wide h entries to all frames downwards, where last frame could be less than 'frame_w' */
     int top_down_frame_buffer[num_x_frame][frame_w];
+    for (int j = 0; j < num_x_frame; j++) {
+        for (int i = 0; i < frame_w; i++) {
+            top_down_frame_buffer[j][i] = 0;
+        }
+    }
     /* each row of frames passes 'num_x_frame-1' many lower right corners to its right-down frame; rightmost frame of the row just send to next process later so do not bother */
     int lower_right_to_upper_left_buffer[num_x_frame];
+    for (int j = 0; j < num_x_frame; j++) {
+        lower_right_to_upper_left_buffer[j] = 0;
+    }
     /* each frame passes 'frame_h' high of h entries to the right frame */
     int left_right_frame_buffer[frame_h];
+    for (int i = 0; i < frame_h; i++) {
+        left_right_frame_buffer[i] = 0;
+    }
 
     for (int h = 0; h < num_y_frame; h++) {
         for (int w = 0; w < num_x_frame; w++) {
@@ -251,29 +252,44 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
 // #endif
 
             /* Getting buffer from top-left */
-            if (w == 0 || h == 0) {
-                // Default lower_right_to_upper_left_buffer to 0
+            if (h == 0) {
+                // Default every lower_right_to_upper_left_buffer on top row of frames to 0
                 lower_right_to_upper_left_buffer[w] = 0;
-            } 
+            } else if (w == 0) {
+                // Restart lower_right_to_upper_left_buffer for this row of frames
+                // Right-Shift lower_right_to_upper_left_buffer once, dropping last element
+                for (int k = 1; k < num_x_frame; k++) {
+                    lower_right_to_upper_left_buffer[k] = lower_right_to_upper_left_buffer[k-1];
+                }
+                lower_right_to_upper_left_buffer[0] = 0;
+            }
             // else: Use lower_right_to_upper_left_buffer from last frame
 
 // #ifdef DEBUG
 //             std::cout << my_rank << " has lrtulb ready in (w, h): " << w << ", " << h << std::endl;
-//             debug_print("left_right_frame_buffer:before", h, w, left_right_frame_buffer, height);
 // #endif
+
+#ifdef DEBUG
+            debug_print("left_right_frame_buffer:before", my_rank, h, w, left_right_frame_buffer, height);
+            debug_print("top_down_frame_buffer:before", my_rank, h, w, top_down_frame_buffer[w], width);
+            debug_print("lower_right_to_upper_left_buffer:before", my_rank, h, w, lower_right_to_upper_left_buffer, num_x_frame);
+            cout << "sending of height " << height << endl;
+#endif
             vector<int> frame_max_scores = computeHx_frame(
                 left_right_frame_buffer,
                 top_down_frame_buffer[w],
                 &(lower_right_to_upper_left_buffer[w]),
                 width, height, a, b,
-                w * frame_w, bIdx + h * frame_h        // string indexes can only be 0, frame_w, 2*frame_w, ... etc. works for trailing frame too
+                h * frame_h, bIdx + w * frame_w        // string indexes can only be 0, frame_w, 2*frame_w, ... etc. works for trailing frame too
             );
             local_max_scores[w] = max(local_max_scores[w], *std::max_element(frame_max_scores.begin(), frame_max_scores.end()));
 
-// #ifdef DEBUG
-//             debug_print("left_right_frame_buffer:after", h, w, left_right_frame_buffer, height);
-//             cout << "sending of height " << height << endl;
-// #endif
+#ifdef DEBUG
+            debug_print("left_right_frame_buffer:after", my_rank, h, w, left_right_frame_buffer, height);
+            debug_print("top_down_frame_buffer:after", my_rank, h, w, top_down_frame_buffer[w], width);
+            debug_print("lower_right_to_upper_left_buffer:after", my_rank, h, w, lower_right_to_upper_left_buffer, num_x_frame);
+            cout << "sending of height " << height << endl;
+#endif
 
 // #ifdef DEBUG
 //             std::cout << my_rank << " has local_max_scores[w] " << local_max_scores[w] << " in (w, h): " << w << ", " << h << std::endl;
@@ -290,6 +306,7 @@ int computeHx(int my_rank, int p, MPI_Comm comm, char *a, char *b, int a_len, in
             }
         }
         // Completed updating top_down_frame_buffer for a row
+
     }
     return *std::max_element(local_max_scores, local_max_scores + num_x_frame);
 }
