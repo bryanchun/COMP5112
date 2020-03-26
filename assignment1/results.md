@@ -1,14 +1,27 @@
-| p       | Input     | Hostfile | Ans  | Running time |
-| ------- | --------- | -------- | ---- | ------------ |
-| serial  | 2k.in     |          |      |              |
-| **1**   | 2k.in     |          |      |              |
-| **2**   | 2k.in     |          |      |              |
-| serial  | sample.in |          | 13   | 2.1828e-05 s |
-| pre-mpi | sample.in |          | 13   | 4.1813e-05 s |
-| **4**   | sample.in | Yes      |      |              |
-| serial  | 1k.in     |          |      |              |
-| **4**   | 1k.in     | Yes      |      |              |
-| **7**   | 2k.in     | Yes      |      |              |
+| p       | Input     | Hostfile | Ans   | Running time |
+| ------- | --------- | -------- | ----- | ------------ |
+| serial  | 20k.in    |          | 14333 |              |
+| **1**   | 20k.in    |          |       |              |
+| **2**   | 20k.in    |          |       |              |
+| serial  | sample.in |          | 13    | 2.1828e-05 s |
+| pre-mpi | sample.in |          | 13    | 4.1813e-05 s |
+| **4**   | sample.in | Yes      |       |              |
+| serial  | 1k.in     |          | 662   |              |
+| **4**   | 1k.in     | Yes      |       |              |
+| **7**   | 20k.in    | Yes      |       |              |
+| Serial  | 20k2k.in  |          | 1565  | 1.64695 s    |
+
+
+
+|                | sample.in  | 1k.in     | 20k.in  | 20k2k.in |
+| -------------- | ---------- | --------- | ------- | -------- |
+| serial         | 5.5617e-05 | 0.108696  | 15.9938 | 1.64695  |
+| n=1            | 3.3234e-05 | 0.034528  | 13.7407 | 1.36883  |
+| n=2            | 4.3749e-05 | 0.0347967 | 7.34673 | 0.720951 |
+| n=4 (hostfile) | 9.9429e-05 | 0.0482383 | 6.37851 | 0.611558 |
+| n=7 (hostfile) | 0.0114945  | 0.0524397 | 4.10472 | 0.397691 |
+
+> As for running on multiple nodes, we will only consider the correctness of the program, since the communication cost will significantly increase.
 
 
 
