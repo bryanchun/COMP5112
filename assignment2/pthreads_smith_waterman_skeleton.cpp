@@ -67,7 +67,7 @@ int smith_waterman(int num_threads, char *a, char *b, int a_len, int b_len){
     frame_has_trailing = a_len % FRAME_SIZE > 0;
     frames_count = (a_len / FRAME_SIZE) + (frame_has_trailing ? 1 : 0);
     local_sems = new sem_t[num_threads];
-    sem_init(&local_sems[0], 0, frames_count);
+    // sem_init(&local_sems[0], 0, frames_count);
     for (int thread = 1; thread < num_threads; thread++) {
         sem_init(&local_sems[thread], 0, 0);
     }
@@ -94,7 +94,7 @@ int smith_waterman(int num_threads, char *a, char *b, int a_len, int b_len){
     }
     delete[] scores;
 
-    for (int thread = 0; thread < num_threads; thread++) {
+    for (long thread = 1; thread < num_threads; thread++) {
         sem_destroy(&local_sems[thread]);
     }
     delete[] local_sems;
@@ -125,7 +125,9 @@ void* Thread_max(void* rank) {
     for (int f = 0; f < frames_count; f++) {
         // Wait for continuation signal for my left boundary
         // as many as there are
-        sem_wait(&local_sems[my_rank]);
+        if (my_rank > 0) {
+            sem_wait(&local_sems[my_rank]);
+        }
 
         int frame_height = (f == frames_count-1 && frame_has_trailing) ? (A_len % FRAME_SIZE) : FRAME_SIZE;
         for (int y = f*FRAME_SIZE, i = 1+y; y < f*FRAME_SIZE + frame_height; y++, i++) {
@@ -135,7 +137,7 @@ void* Thread_max(void* rank) {
             }
         }
 
-        if (my_rank < threads_count-1) {
+        if (threads_count > 1 && my_rank < threads_count-1) {
             // Give continuation signal for right-neighbouring thread
             // as many as there are
             sem_post(&local_sems[my_rank+1]);
