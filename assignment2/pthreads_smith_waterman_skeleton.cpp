@@ -9,6 +9,7 @@
 #include <algorithm>
 #include "pthreads_smith_waterman.h"
 #ifdef DEBUG
+#include <stdio.h>
 #include <iostream>
 void debug_print(string name, int my_rank, int arr[], int n) {
     std::cout << my_rank << " " << name << " is: ";
@@ -38,8 +39,12 @@ int threads_count;
 char *A, *B;
 int A_len, B_len;
 // Intermediates
+int n_diagonal;
 int** scores;
-sem_t* local_sems;
+// sem_t* local_sems;
+pthread_barrier_t barrier;
+// sem_t count_sem;
+// pthread_mutex_t counter_lock;
 // Outputs
 int local_maxes[MAX_THREADS] = {};
 
@@ -56,11 +61,15 @@ int smith_waterman(int num_threads, char *a, char *b, int a_len, int b_len){
     for (int i = 0; i <= a_len; i++) {
         scores[i] = new int[b_len+1]();
     }
-    local_sems = new sem_t[num_threads];
-    sem_init(&local_sems[0], 0, a_len);
-    for (int thread = 1; thread < num_threads; thread++) {
-        sem_init(&local_sems[thread], 0, 0);
-    }
+    n_diagonal = a_len + num_threads - 1;
+    // local_sems = new sem_t[n_diagonal];
+    // sem_init(&local_sems[0], 0, a_len);
+    // for (int thread = 0; thread < n_diagonal; thread++) {
+    //     sem_init(&local_sems[thread], 0, 0);
+    // }
+    pthread_barrier_init(&barrier, NULL, threads_count);
+    // sem_init(&count_sem, 0, 1);
+    // pthread_mutex_init(&counter_lock, NULL);
 
     // Threading
     pthread_t* thread_handles = new pthread_t[num_threads];
@@ -74,16 +83,29 @@ int smith_waterman(int num_threads, char *a, char *b, int a_len, int b_len){
         pthread_join(thread_handles[thread], NULL);
     }
 
+#ifdef DEBUG
+    cout << "scores:" << endl;
+    for (int i = 0; i < a_len + 1; i++) {
+        for (int j = 0; j < b_len + 1; j++) {
+            cout << scores[i][j] << " ";
+        }
+        cout << endl;
+    }
+#endif
+
     // Teardown
     for (int i = 0; i <= a_len; i++) {
         delete[] scores[i];
     }
     delete[] scores;
 
-    for (int thread = 0; thread < num_threads; thread++) {
-        sem_destroy(&local_sems[thread]);
-    }
-    delete[] local_sems;
+    // for (int thread = 0; thread < n_diagonal; thread++) {
+    //     sem_destroy(&local_sems[thread]);
+    // }
+    // delete[] local_sems;
+    // sem_destroy(&count_sem);
+    // pthread_mutex_destroy(&counter_lock);
+    pthread_barrier_destroy(&barrier);
 
     delete[] thread_handles;
 
@@ -107,24 +129,71 @@ void* Thread_max(void* rank) {
         : (outstanding * (base_width + 1) + (my_rank - outstanding) * base_width);  // otherwise, shift all outstanding base_width+1 then times as many more than outstanding with base_width
 
     // Compute my columns of the score matrix
-    for (int i = 1; i <= A_len; i++) {
-        // Wait for continuation signal for my left boundary
-        // As many as there are
-        sem_wait(&local_sems[my_rank]);
-        for (int w = 0; w < width; w++) {
-            int j = 1 + bIdx + w;
-            scores[i][j] = computeH_ij(scores[i-1][j-1], scores[i][j-1], scores[i-1][j], A[i-1], B[bIdx + w]);
-            local_maxes[my_rank] = max(local_maxes[my_rank], scores[i][j]);
+    for (int d = 0; d < n_diagonal; d++) {
+        int i = d - my_rank + 1;
+
+        // sem_wait(&count_sem);    
+
+        // Which threads need to work? Those with i > 0 && i <= A_len. Just normally proceed as no data dependency exists in this barrier
+        // If i is in [1, A_len], this thread's dependencies are ready
+        if (i > 0 && i <= A_len) {
+#ifdef DEBUG
+            printf("thread %ld is working at d = %d, i = %d\n", my_rank, d, i);
+#endif            
+            for (int w = 1; w <= width; w++) {
+                int j = bIdx + w;
+                scores[i][j] = computeH_ij(scores[i-1][j-1], scores[i][j-1], scores[i-1][j], A[i-1], B[j-1]);   // A and B uses 0-index
+                local_maxes[my_rank] = max(local_maxes[my_rank], scores[i][j]);
+            }
         }
-        if (my_rank < threads_count-1) {
-            // Give continuation signal for right-neighbouring thread
-            // As many as there are
-            sem_post(&local_sems[my_rank+1]);
-        }
+
+        pthread_barrier_wait(&barrier);
+
+//         pthread_mutex_lock(&mutex);
+//         counter++;
+//         if (counter == threads_count - 1) {
+// #ifdef DEBUG
+//             printf("thread %ld is posting to all at d = %d, i = %d\n", my_rank, d, i);
+// #endif
+//             // Resey counter for next barrier
+//             counter = 0;
+//             pthread_cond_broadcast(&cond);
+//         } else {
+// #ifdef DEBUG
+//             printf("thread %ld is waiting at d = %d, i = %d, counter = %d\n", my_rank, d, i, counter);
+// #endif
+//             while (pthread_cond_wait(&cond, &mutex));
+//         }
+//         pthread_mutex_unlock(&mutex);
+
+
+//         if (counter == threads_count - 1) {
+//             // Until whichever last working thread finishes, it needs to post to all other threads on d's semaphore for the next barrier
+// #ifdef DEBUG
+//             printf("thread %ld is posting to all at d = %d, i = %d\n", my_rank, d, i);
+// #endif
+//             // pthread_mutex_lock(&counter_lock);
+//             counter = 0;
+//             // pthread_mutex_unlock(&counter_lock);
+//             // sem_post(&count_sem);
+//             for (int r = 0; r < threads_count - 1; r++) {
+//                 sem_post(&local_sems[d]);
+//             }
+//         } else {
+//             // All but one threads should wait on this barrier d, regardless of the thread having worked or not
+//             // pthread_mutex_lock(&counter_lock);
+//             counter++;
+//             // pthread_mutex_unlock(&counter_lock);
+//             // sem_post(&count_sem);
+// #ifdef DEBUG
+//             printf("thread %ld is waiting at d = %d, i = %d, counter = %d\n", my_rank, d, i, counter);
+// #endif
+//             sem_wait(&local_sems[d]);
+//         }
     }
 
 #ifdef DEBUG
-    cout << "Thread_max from rank " << my_rank << " is " << local_maxes[my_rank] << endl;
+    printf("Thread_max from rank %ld is %d\n", my_rank, local_maxes[my_rank]);
 #endif
 }
 
