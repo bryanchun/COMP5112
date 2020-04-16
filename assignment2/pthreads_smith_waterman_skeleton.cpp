@@ -28,10 +28,13 @@ int computeH_ij(int lastlast, int last_L, int last_R, char a_i, char b_i);
 /* Global variables for communication */
 // Constants
 const int MAX_THREADS = 8;
+const int FRAME_SIZE = 10;
 // Inputs
 int threads_count;
 char *A, *B;
 int A_len, B_len;
+int frames_count;
+bool frame_has_trailing;
 // Intermediates
 int n_diagonal;
 int** scores;
@@ -48,11 +51,16 @@ int smith_waterman(int num_threads, char *a, char *b, int a_len, int b_len){
     threads_count = num_threads;
     A = a; B = b;
     A_len = a_len; B_len = b_len;
+
     scores = new int*[a_len+1];
     for (int i = 0; i <= a_len; i++) {
         scores[i] = new int[b_len+1]();
     }
-    n_diagonal = a_len + num_threads - 1;
+
+    frame_has_trailing = a_len % FRAME_SIZE > 0;
+    frames_count = (a_len / FRAME_SIZE) + (frame_has_trailing ? 1 : 0);
+    
+    n_diagonal = frames_count + num_threads - 1;
     pthread_barrier_init(&barrier, NULL, threads_count);
 
     // Threading
@@ -108,18 +116,25 @@ void* Thread_max(void* rank) {
 
     // Compute my columns of the score matrix
     for (int d = 0; d < n_diagonal; d++) {
-        int i = d - my_rank + 1;
+        int f = d - my_rank + 1;
 
         // Which threads need to work? Those with i > 0 && i <= A_len. Just normally proceed as no data dependency exists in this barrier
         // If i is in [1, A_len], this thread's dependencies are ready
-        if (i > 0 && i <= A_len) {
+        if (f > 0 && f <= frames_count) {
 #ifdef DEBUG
-            printf("thread %ld is working at d = %d, i = %d\n", my_rank, d, i);
+            printf("thread %ld is working at d = %d, f = %d\n", my_rank, d, f);
 #endif            
-            for (int w = 1; w <= width; w++) {
-                int j = bIdx + w;
-                scores[i][j] = computeH_ij(scores[i-1][j-1], scores[i][j-1], scores[i-1][j], A[i-1], B[j-1]);   // A and B uses 0-index
-                local_maxes[my_rank] = max(local_maxes[my_rank], scores[i][j]);
+            int frame_height = (f == frames_count && frame_has_trailing) ? (A_len % FRAME_SIZE) : FRAME_SIZE;
+            int aIdx = 1 + (f-1) * FRAME_SIZE;
+            for (int i = aIdx; i < aIdx + frame_height; i++) {
+                for (int w = 1; w <= width; w++) {
+                    int j = bIdx + w;
+#ifdef DEBUG
+                    printf("still alive at (i, j) = (%d, %d)\n", i, j);
+#endif
+                    scores[i][j] = computeH_ij(scores[i-1][j-1], scores[i][j-1], scores[i-1][j], A[i-1], B[j-1]);   // A and B uses 0-index
+                    local_maxes[my_rank] = max(local_maxes[my_rank], scores[i][j]);
+                }
             }
         }
 
