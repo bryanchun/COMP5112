@@ -28,7 +28,7 @@ int computeH_ij(int lastlast, int last_L, int last_R, char a_i, char b_i);
 /* Global variables for communication */
 // Constants
 const int MAX_THREADS = 8;
-const int FRAME_SIZE = 1;
+const int FRAME_SIZE = 10;
 // Inputs
 int threads_count;
 char *A, *B;
@@ -72,23 +72,6 @@ int smith_waterman(int num_threads, char *a, char *b, int a_len, int b_len){
         }
     }
 
-#ifdef DEBUG
-    cout << "widths:" << endl;
-    for (int r = 0; r < threads_count; r++) {
-        cout << widths[r] << " ";
-    }
-    cout << endl;
-    // cout << "scores:" << endl;
-    // for (int i = 0; i <= a_len; i++) {
-    //     for (int r = 0; r < threads_count; r++) {
-    //         for (int j = 0; j < widths[r]; j++) {
-    //             cout << scores[r][i][j] << " ";
-    //         }
-    //     }
-    //     cout << endl;
-    // }
-#endif
-
     frame_has_trailing = a_len % FRAME_SIZE > 0;
     frames_count = (a_len / FRAME_SIZE) + (frame_has_trailing ? 1 : 0);
 
@@ -106,18 +89,6 @@ int smith_waterman(int num_threads, char *a, char *b, int a_len, int b_len){
     for (long thread = 0; thread < num_threads; thread++) {
         pthread_join(thread_handles[thread], NULL);
     }
-
-#ifdef DEBUG
-    // cout << "scores:" << endl;
-    // for (int i = 0; i <= a_len; i++) {
-    //     for (int r = 0; r < threads_count; r++) {
-    //         for (int j = 0; j < widths[r]; j++) {
-    //             cout << scores[r][i][j] << " ";
-    //         }
-    //     }
-    //     cout << endl;
-    // }
-#endif
 
     // Teardown
 
@@ -143,72 +114,69 @@ int smith_waterman(int num_threads, char *a, char *b, int a_len, int b_len){
 
 void* Thread_max(void* rank) {
     long my_rank = (long) rank;
-    int my_width = widths[my_rank];
-
-    // Local scores is (a_len + 1) x (my_width + 1)
-    int** scores = new int*[A_len + 1];
-    for (int i = 0; i <= A_len; i++) {
-        scores[i] = new int[my_width + 1]();
-    }
 
     // Get my partition
+    int my_width = widths[my_rank];
     int bIdx = my_rank < outstanding
         ? (my_rank * (base_width + 1))                                              // if my_rank is less than outstanding, multiply base_width+1 by my_rank
         : (outstanding * (base_width + 1) + (my_rank - outstanding) * base_width);  // otherwise, shift all outstanding base_width+1 then times as many more than outstanding with base_width
 
+    // Local scores is (a_len + 1) x (my_width)
+    int** scores = new int*[A_len + 1];
+    for (int i = 0; i <= A_len; i++) {
+        scores[i] = new int[my_width]();
+    }    
+    
     // Compute my columns of the score matrix
     for (int d = 0; d < n_diagonal; d++) {
         int f = d - my_rank + 1;
-
-        // TODO: Initialize leftmost col by getting from last
+        int my_height, aIdx;
 
         // Which threads need to work? Those with i > 0 && i <= A_len. Just normally proceed as no data dependency exists in this barrier
         // If i is in [1, A_len], this thread's dependencies are ready
-        if (f > 0 && f <= frames_count) {
-#ifdef DEBUG
-            // printf("thread %ld is working at d = %d, f = %d\n", my_rank, d, f);
-#endif            
-            int frame_height = (f == frames_count && frame_has_trailing) ? (A_len % FRAME_SIZE) : FRAME_SIZE;
-            int aIdx = 1 + (f-1) * FRAME_SIZE;
-            for (int b = 0, i = aIdx; b < frame_height, i < aIdx + frame_height; b++, i++) {
+        if (f > 0 && f <= frames_count) {     
+            my_height = (f == frames_count && frame_has_trailing) ? (A_len % FRAME_SIZE) : FRAME_SIZE;
+            aIdx = (f-1) * FRAME_SIZE;
+            for (int h = 1; h <= my_height; h++) {
+                int i = aIdx + h;               // i is 1-indexed (row 0 is padded with 0)
                 for (int w = 0; w < my_width; w++) {
-                    int j = 1 + bIdx + w;
-                    int lastlast = (j == 1) ? 
-                                    ((my_rank == 0) ? 0 : buffer[my_rank-1][b-2]):      // buffer use 0-indexed, i is 1-indexed
-                                    (scores[i-1][j-1]);
-                    int lastL = (j == 1) ? 
-                                    ((my_rank == 0) ? 0 : buffer[my_rank-1][b-1]):
-                                    (scores[i][j-1]);
-                    int lastR = scores[i-1][j];
+                    int j = bIdx + w;           // j is 0-indexed (col -1 is 0 for my_rank == 0 or buffer otherwise) - buffer is 0-indexed too
+                    int lastlast = (w == 0) ? 
+                                    ((my_rank == 0) ? 0 : (buffer[my_rank-1][h-1])) :      // buffer use 0-indexed, i is 1-indexed
+                                    (scores[i-1][w-1]);
+                    int lastL = (w == 0) ? 
+                                    ((my_rank == 0) ? 0 : (buffer[my_rank-1][h])) :
+                                    (scores[i][w-1]);
+                    int lastR = scores[i-1][w];
+                    scores[i][w] = computeH_ij(lastlast, lastL, lastR, A[i-1], B[j]);   // A and B use 0-indexed, i is 1-indexed, j is 1-indexed
 #ifdef DEBUG
-                    printf("thread %ld is working at d = %d, f = %d, i = %d, j = %d: lastlast = %d, lastL = %d, lastR = %d\n",
-                        my_rank, d, f, i, j, lastlast, lastL, lastR);
+                    printf("thread %ld is working at d = %d, f = %d, i = %d, j = %d: lastlast = %d, lastL = %d, lastR = %d, a = %c, b = %c => score[i][j] = %d\n",
+                        my_rank, d, f, i, j, lastlast, lastL, lastR, A[i-1], B[j], scores[i][j]);
 #endif
-                    scores[i][j] = computeH_ij(lastlast, lastL, lastR, A[i-1], B[j-1]);   // A and B use 0-indexed, i is 1-indexed, j is 1-indexed
-                    local_maxes[my_rank] = max(local_maxes[my_rank], scores[i][j]);
+                    local_maxes[my_rank] = max(local_maxes[my_rank], scores[i][w]);
                 }
-
-                // Pass to buffer
-                buffer[my_rank][b] = scores[i][my_width - 1];
             }
         }
 
         pthread_barrier_wait(&barrier);
-#ifdef DEBUG
-        if (my_rank < threads_count - 1) {
-            printf("Thread %ld has buffer:\n", my_rank);
-            for (int i = 0; i < FRAME_SIZE + 1; i++) {
-                cout << buffer[my_rank][i] << " ";
+
+        if (f > 0 && f <= frames_count && threads_count > 1 && my_rank < threads_count - 1) {
+            // Carry diagonal on
+            buffer[my_rank][0] = buffer[my_rank][my_height];
+            // Pass to buffer
+            for (int h = 1; h <= my_height; h++) {
+                int i = aIdx + h;
+                buffer[my_rank][h] = scores[i][my_width - 1];
             }
-            cout << endl;
         }
-#endif
+
+        pthread_barrier_wait(&barrier);
     }
 
 #ifdef DEBUG
     printf("Thread %ld has scores:\n", my_rank);
     for (int i = 0; i <= A_len; i++) {
-        for (int j = 0; j <= my_width; j++) {
+        for (int j = 0; j < my_width; j++) {
             cout << scores[i][j] << " ";
         }
         cout << endl;
