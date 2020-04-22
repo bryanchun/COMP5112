@@ -11,6 +11,7 @@
 #ifdef DEBUG
 #include <stdio.h>
 #include <iostream>
+#include <sstream>
 void debug_print(string name, int my_rank, int arr[], int n) {
     std::cout << my_rank << " " << name << " is: ";
     for (int i = 0; i < n; i++)
@@ -43,6 +44,7 @@ int n_diagonal;
 int** buffer;
 // int*** scores;
 pthread_barrier_t barrier;
+pthread_mutex_t mutex;
 // Outputs
 int local_maxes[MAX_THREADS] = {};
 
@@ -77,6 +79,8 @@ int smith_waterman(int num_threads, char *a, char *b, int a_len, int b_len){
 
     n_diagonal = frames_count + num_threads - 1;
     pthread_barrier_init(&barrier, NULL, threads_count);
+
+    pthread_mutex_init(&mutex, NULL);
 
     // Threading
     pthread_t* thread_handles = new pthread_t[num_threads];
@@ -121,6 +125,9 @@ void* Thread_max(void* rank) {
         ? (my_rank * (base_width + 1))                                              // if my_rank is less than outstanding, multiply base_width+1 by my_rank
         : (outstanding * (base_width + 1) + (my_rank - outstanding) * base_width);  // otherwise, shift all outstanding base_width+1 then times as many more than outstanding with base_width
 
+    // Answer
+    int local_max = 0;
+
     // Local scores is (a_len + 1) x (my_width)
     int** scores = new int*[A_len + 1];
     for (int i = 0; i <= A_len; i++) {
@@ -132,9 +139,12 @@ void* Thread_max(void* rank) {
         int f = d - my_rank + 1;
         int my_height, aIdx;
 
+        pthread_barrier_wait(&barrier);
+
         // Which threads need to work? Those with i > 0 && i <= A_len. Just normally proceed as no data dependency exists in this barrier
         // If i is in [1, A_len], this thread's dependencies are ready
-        if (f > 0 && f <= frames_count) {     
+        if (f > 0 && f <= frames_count) { 
+            
             my_height = (f == frames_count && frame_has_trailing) ? (A_len % FRAME_SIZE) : FRAME_SIZE;
             aIdx = (f-1) * FRAME_SIZE;
             for (int h = 1; h <= my_height; h++) {
@@ -150,37 +160,43 @@ void* Thread_max(void* rank) {
                     int lastR = scores[i-1][w];
                     scores[i][w] = computeH_ij(lastlast, lastL, lastR, A[i-1], B[j]);   // A and B use 0-indexed, i is 1-indexed, j is 1-indexed
 #ifdef DEBUG
-                    printf("thread %ld is working at d = %d, f = %d, i = %d, j = %d: lastlast = %d, lastL = %d, lastR = %d, a = %c, b = %c => score[i][j] = %d\n",
-                        my_rank, d, f, i, j, lastlast, lastL, lastR, A[i-1], B[j], scores[i][j]);
+                    printf("thread %ld is working at d = %d, f = %d, i = %d, j = %d: lastlast = %d, lastL = %d, lastR = %d, a = %c, b = %c => score[i][w] = %d\n",
+                        my_rank, d, f, i, j, lastlast, lastL, lastR, A[i-1], B[j], scores[i][w]);
 #endif
-                    local_maxes[my_rank] = max(local_maxes[my_rank], scores[i][w]);
+                    local_max = max(local_max, scores[i][w]);
                 }
+            }
+
+            if (f == frames_count) {
+                local_maxes[my_rank] = local_max;
             }
         }
 
         pthread_barrier_wait(&barrier);
 
         if (f > 0 && f <= frames_count && threads_count > 1 && my_rank < threads_count - 1) {
+            pthread_mutex_lock(&mutex);
             // Carry diagonal on
-            buffer[my_rank][0] = buffer[my_rank][my_height];
+            buffer[my_rank][0] = scores[aIdx][my_width - 1];
             // Pass to buffer
             for (int h = 1; h <= my_height; h++) {
                 int i = aIdx + h;
                 buffer[my_rank][h] = scores[i][my_width - 1];
             }
+            pthread_mutex_unlock(&mutex);
         }
-
-        pthread_barrier_wait(&barrier);
     }
 
 #ifdef DEBUG
-    printf("Thread %ld has scores:\n", my_rank);
+    stringstream msg;
+    msg << "Thread " << my_rank << " has scores:\n";
     for (int i = 0; i <= A_len; i++) {
         for (int j = 0; j < my_width; j++) {
-            cout << scores[i][j] << " ";
+            msg << scores[i][j] << "\t\t";
         }
-        cout << endl;
+        msg << endl;
     }
+    cout << msg.str();
 #endif
 
     // Teardown
