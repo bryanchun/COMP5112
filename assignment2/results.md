@@ -15,3 +15,9 @@ Lesson
 - Use local variables as much as possible. Use global arrays as restrictive as possible
 - Memory access pattern is the speedup bottleneck
 - Critical sections can lurk around
+
+From solution
+
+- Barrier-only is the way
+- It is completely okay to process element-by-element, as long as no **file-global variables** are involved, it will probably be fast enough
+- As a middle ground, declare main-local variables (pointers) and pass them into thread_word (as an optimisation this can be done as a struct to avoid further per-thread derviations and passing many arguments into thread_work)
