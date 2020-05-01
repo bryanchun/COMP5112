@@ -18,3 +18,7 @@ int smith_waterman(char *a, char *b, int a_len, int b_len);
 inline int sub_mat(char x, char y) {
 	return x == y ? MATCH : MIS;
 }
+
+inline int idx(int x, int y, int n){
+	return x * n + y;
+}
