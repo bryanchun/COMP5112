@@ -14,6 +14,7 @@ using namespace std;
 __const__
 int d_tileHeight = 10000;
 const int h_tileHeight = 10000;
+const int MAX_SEQ_SIZE = 20000;
 
 __device__
 int max_score = 0;
@@ -25,14 +26,12 @@ int lin_idx(int x, int y, int n) {
 }
 
 __global__
-void kernel(char* d_a /* in */, char* d_b /* in */, int a_len /* in */, int b_len /* in */, 
-			int* d_score /* out */,
-			int d /* in; diagonal idx */, int w /* in; width of this diagonal */, int D /* in; number of diagonals */
+void kernel(
+	char* d_a /* in */, char* d_b /* in */, int a_len /* in */, int b_len /* in */, 
+	int* d_score /* out */,
+	int d /* in; diagonal idx */, int w /* in; width of this diagonal */, int D /* in; number of diagonals */
 ) {
-// Illegal memory access - allocating too much device memory to CUDA
-	// Moving vertical frame (10000 * b_len) anytime when (d % 10000 == 0) on-demand, and reset 'd_top' of (2 * b_len) and init to 0 -> then kernel
-	// lastlast and lastR will access 'd_top' at edge cases (may merge d <= m and otherwise cases)
-// Coalesce need to be within block or across block?
+// Incorrect input3.txt?
 
 	// Compute one or more element on a diagonal 'd'
 	int i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -54,14 +53,14 @@ void kernel(char* d_a /* in */, char* d_b /* in */, int a_len /* in */, int b_le
 
 			int current = lin_idx(d_tiled, i, b_len);
 			/*
-			1. d < a_len  -> pad for lastlast, lastL; left-parallelogram
+			1. d < a_len  -> only pad for lastlast, lastL outside of leftmost bound; left-parallelogram
 			2. d == a_len -> no pad; forward triangle
 			3. d > a_len -> no pad; right-parallelogram
 			*/
 			int lastlast, lastL, lastR;
 			if (d < a_len) {
-				lastlast = (i == 0)	? 0 : d_score[lin_idx(d_tiled-2, i-1, b_len)];
-				lastL 	 = (i == 0)	? 0 : d_score[lin_idx(d_tiled-1, i-1, b_len)];
+				lastlast = (i == 0) ? 0 : d_score[lin_idx(d_tiled-2, i-1, b_len)];
+				lastL 	 = (i == 0) ? 0 : d_score[lin_idx(d_tiled-1, i-1, b_len)];
 				lastR 	 = d_score[lin_idx(d_tiled-1, i, b_len)];
 			} else {
 				lastlast = d_score[lin_idx(d_tiled-2, ((d == a_len) ? i : i+1), b_len)];
@@ -70,13 +69,13 @@ void kernel(char* d_a /* in */, char* d_b /* in */, int a_len /* in */, int b_le
 				//printf("* (d, i, x, y) = (%d, %d, %d, %d): L of (%d, %d), l of (%d, %d), r of (%d, %d)\n", d, i, x, y, d-2, ((d == a_len) ? i : i+1), d-1, i, d-1, i+1);
 			}
 			
-			d_score[current] = 	max(0,
-								max(lastlast + sub_mat(d_a[x], d_b[y]),
-								max(lastL - GAP,
-									lastR - GAP
-								)));
+			d_score[current] =  max(0,
+						max(lastlast + sub_mat(d_a[x], d_b[y]),
+						max(lastL - GAP,
+							lastR - GAP
+						)));
 			atomicMax(&max_score, d_score[current]);
-			// printf("> (d, d_tiled, i, x, y) = (%d, %d, %d, %d, %d)\n\t(cIdx, L, l, r, d_a[x], d_b[y]) -> (%d, %d, %d, %d, %c, %c)\n\t(score, max_score) = (%d, %d)\n", d, d_tiled, i, x, y, current, lastlast, lastL, lastR, d_a[x], d_b[y], d_score[current], max_score);
+			//printf("> (d, d_tiled, i, x, y) = (%d, %d, %d, %d, %d)\n\t(cIdx, L, l, r, d_a[x], d_b[y]) -> (%d, %d, %d, %d, %c, %c)\n\t(score, max_score) = (%d, %d)\n", d, d_tiled, i, x, y, current, lastlast, lastL, lastR, d_a[x], d_b[y], d_score[current], max_score);
 		}
 	}
 }
@@ -121,16 +120,16 @@ void debug_xy(char* d_a, char* d_b, int* d_score, int a_len, int b_len) {
 	printf("\n");
 }
 
-__global__
-void debug_di(int* d_score, int d_score_height, int b_len) {
-	for (int i = 0; i < d_score_height; i++) {
-		for (int j = 0; j < b_len; j++) {
-			printf("%d\t", d_score[utils::dev_idx(j, i, b_len)]);
-		}
-		printf("\n");
-	}
-	printf("\n");
-}
+// __global__
+// void debug_di(int* d_score, int d_score_height, int b_len) {
+// 	for (int i = 0; i < d_score_height; i++) {
+// 		for (int j = 0; j < b_len; j++) {
+// 			printf("%d\t", d_score[utils::dev_idx(j, i, b_len)]);
+// 		}
+// 		printf("\n");
+// 	}
+// 	printf("\n");
+// }
 
 int smith_waterman(int blocks_per_grid, int threads_per_block, char *a, char *b, int a_len, int b_len) {
 	/*
@@ -148,7 +147,7 @@ int smith_waterman(int blocks_per_grid, int threads_per_block, char *a, char *b,
 	cudaMalloc(&d_a, sizeof(char) * a_len);
 	cudaMalloc(&d_b, sizeof(char) * b_len);
 	int h_score_height = min(D, h_tileHeight) + 2;
-	cudaMalloc(&d_score, sizeof(int) * (h_score_height * b_len));
+	cudaMalloc(&d_score, sizeof(int) * (h_score_height * MAX_SEQ_SIZE));
 
 	// Copy hostToDevice
 	cudaMemcpy(d_a, a, sizeof(char) * a_len, cudaMemcpyHostToDevice);
