@@ -55,7 +55,7 @@ void kernel(
 			/*
 			1. d < a_len  -> only pad for lastlast, lastL outside of leftmost bound; left-parallelogram
 			2. d == a_len -> no pad; forward triangle
-			3. d > a_len -> no pad; right-parallelogram
+			3. d > a_len  -> no pad; right-parallelogram
 			*/
 			int lastlast, lastL, lastR;
 			if (d < a_len) {
@@ -83,7 +83,6 @@ void kernel(
 __global__
 void nextTile(int* d_score, int d_score_height, int b_len) {
 	int i = blockDim.x * blockIdx.x + threadIdx.x;
-
 	// If there are too many threads, only a subset of threads within 'b_len' will work
 	if (i < b_len) {
 		int numCycles = 1;
@@ -135,7 +134,7 @@ int smith_waterman(int blocks_per_grid, int threads_per_block, char *a, char *b,
 	/*
 	 *  Please fill in your codes here.
 	 */
-
+	
 	// Number of diagonals, Double-max width of a diagonal
 	int D = a_len + b_len - 1;
 	int W = 2*a_len + (D % 2);
@@ -147,14 +146,14 @@ int smith_waterman(int blocks_per_grid, int threads_per_block, char *a, char *b,
 	cudaMalloc(&d_a, sizeof(char) * a_len);
 	cudaMalloc(&d_b, sizeof(char) * b_len);
 	int h_score_height = min(D, h_tileHeight) + 2;
-	cudaMalloc(&d_score, sizeof(int) * (h_score_height * MAX_SEQ_SIZE));
-
+	cudaMalloc(&d_score, sizeof(int) * (h_score_height * (MAX_SEQ_SIZE+1)));
+	
 	// Copy hostToDevice
 	cudaMemcpy(d_a, a, sizeof(char) * a_len, cudaMemcpyHostToDevice);
 	cudaMemcpy(d_b, b, sizeof(char) * b_len, cudaMemcpyHostToDevice);
 	// Initialise score 'linear matrix' to zeroes
-	cudaMemset(d_score, 0, sizeof(int) * (h_score_height * b_len));
-
+	cudaMemset(d_score, 0, sizeof(int) * (h_score_height * (MAX_SEQ_SIZE+1)));
+	
 	// Invoke kernel
 	for (int d = 0; d < D; d++) {
 		int w = (d <= a_len) ? (d + 1) : (W - d);
@@ -164,7 +163,7 @@ int smith_waterman(int blocks_per_grid, int threads_per_block, char *a, char *b,
 			nextTile<<<blocks_per_grid, threads_per_block>>>(d_score, h_score_height, b_len);
 		}
 	}
-
+	
 	// Return answer
 	int answer;
 	cudaMemcpyFromSymbol(&answer, max_score, sizeof(int), 0, cudaMemcpyDeviceToHost);
@@ -173,6 +172,6 @@ int smith_waterman(int blocks_per_grid, int threads_per_block, char *a, char *b,
 	cudaFree(d_a);
 	cudaFree(d_b);
 	cudaFree(d_score);
-
+	
 	return answer;
 }
