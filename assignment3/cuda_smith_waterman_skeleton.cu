@@ -49,7 +49,8 @@ void kernel(
 	// If there are too many threads, only a subset of threads within 'w' will work
 	if (i < w) {
 		int numThreads = gridDim.x * blockDim.x,
-			numCycles = numCyclesOf(i, numThreads, w);
+			numCycles = numCyclesOf(i, numThreads, w),
+			max_i = 0;
 		// printf("> (w, d, i) = (%d, %d, %d) has (numThreads, numCycles) = (%d, %d)\n", w, d, i, numThreads, numCycles);
 		for (int cycle = 0; cycle < numCycles; cycle++, i += numThreads) {
 
@@ -81,9 +82,10 @@ void kernel(
 						max(lastL - GAP,
 							lastR - GAP
 						)));
-			atomicMax(&d_max_score, d_score[current]);
+			max_i = max(max_i, d_score[current]);
 			// printf("> (d, d_tiled, i, x, y) = (%d, %d, %d, %d, %d)\n\t(cIdx, L, l, r, d_a[x], d_b[y]) -> (%d, %d, %d, %d, %c, %c)\n\t(score, d_max_score) = (%d, %d)\n", d, d_tiled, i, x, y, current, lastlast, lastL, lastR, d_a[x], d_b[y], d_score[current], d_max_score);
 		}
+		atomicMax(&d_max_score, max_i);
 	}
 }
 
