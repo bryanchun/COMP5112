@@ -25,6 +25,17 @@ int lin_idx(int x, int y) {
 	return utils::dev_idx(x+2, y, d_MAX_SEQ_SIZE);
 }
 
+__device__
+int numCyclesOf(int i, int numThreads, int w) {
+	int numFullCycles = w / numThreads,
+		numOutstandingCycles = w % numThreads;
+	return (numFullCycles == 0) ?
+			// Too many threads, thread 'i' will work only once
+			1 :
+			// If there are too few threads, thread 'i' will work multiple times cyclically by coalesced access
+			(numFullCycles + (i < numOutstandingCycles));
+}
+
 __global__
 void kernel(
 	char* d_a /* in */, char* d_b /* in */, int a_len /* in */,
@@ -38,14 +49,7 @@ void kernel(
 	// If there are too many threads, only a subset of threads within 'w' will work
 	if (i < w) {
 		int numThreads = gridDim.x * blockDim.x,
-			numFullCycles = w / numThreads,
-			numOutstandingCycles = w % numThreads;
-		int numCycles = (numFullCycles == 0) ?
-			// Too many threads, thread 'i' will work only once
-			1 :
-			// If there are too few threads, thread 'i' will work multiple times cyclically by coalesced access
-			(numFullCycles + (i < numOutstandingCycles));
-
+			numCycles = numCyclesOf(i, numThreads, w);
 		// printf("> (w, d, i) = (%d, %d, %d) has (numThreads, numCycles) = (%d, %d)\n", w, d, i, numThreads, numCycles);
 		for (int cycle = 0; cycle < numCycles; cycle++, i += numThreads) {
 
@@ -89,13 +93,7 @@ void nextTile(int* d_score, int d_score_height, int d_score_width) {
 	// If there are too many threads, only a subset of threads within 'd_score_width' will work
 	if (i < d_score_width) {
 		int numThreads = gridDim.x * blockDim.x,
-			numFullCycles = d_score_width / numThreads,
-			numOutstandingCycles = d_score_width % numThreads;
-		int numCycles = (numFullCycles == 0) ?
-			// Too many threads, thread 'i' will work only once
-			1 :
-			// If there are too few threads, thread 'i' will work multiple times cyclically by coalesced access
-			(numFullCycles + (i < numOutstandingCycles));
+			numCycles = numCyclesOf(i, numThreads, d_score_width);
 		for (int cycle = 0; cycle < numCycles; cycle++, i += numThreads) {
 			d_score[lin_idx(-2, i)] = d_score[lin_idx(d_score_height-2, i)];
 			d_score[lin_idx(-1, i)] = d_score[lin_idx(d_score_height-1, i)];
